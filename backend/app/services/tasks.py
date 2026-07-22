@@ -12,13 +12,20 @@ def _serialize(item: dict) -> dict:
     }
 
 
-def list_tasks(user_email: str, show_completed: bool = False, max_results: int = 50) -> list[dict]:
+def list_tasks(
+    user_email: str,
+    show_completed: bool = False,
+    max_results: int = 50,
+    due_min: str | None = None,
+    due_max: str | None = None,
+) -> list[dict]:
     service = tasks_client(user_email)
-    result = (
-        service.tasks()
-        .list(tasklist=DEFAULT_TASKLIST, showCompleted=show_completed, maxResults=max_results)
-        .execute()
-    )
+    kwargs = {"tasklist": DEFAULT_TASKLIST, "showCompleted": show_completed, "maxResults": max_results}
+    if due_min is not None:
+        kwargs["dueMin"] = due_min
+    if due_max is not None:
+        kwargs["dueMax"] = due_max
+    result = service.tasks().list(**kwargs).execute()
     return [_serialize(item) for item in result.get("items", [])]
 
 

@@ -13,6 +13,9 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     jwt_ttl_minutes: int = 45
 
+    groq_api_key: str
+    groq_model: str = "llama-3.3-70b-versatile"
+
 
 settings = Settings()
 
