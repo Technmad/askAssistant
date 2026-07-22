@@ -12,7 +12,7 @@ from zoneinfo import ZoneInfo
 
 from langgraph.graph import END, StateGraph
 
-from ..nlu.datetime_resolver import resolve_instant, resolve_range
+from ..nlu.datetime_resolver import extract_time_of_day, resolve_instant, resolve_range
 from ..services import calendar as calendar_service
 from ..services import tasks as tasks_service
 from ..services.resolve import resolve_target
@@ -45,6 +45,22 @@ def _new_request_id() -> str:
 
 def _now_dt(state: AgentState) -> datetime:
     return datetime.fromisoformat(state["now"])
+
+
+def _has_explicit_time(time_phrase: str | None) -> bool:
+    """resolve_instant defaults to midnight when no time-of-day is stated --
+    fine for a task due-date, never acceptable for a calendar event. This
+    checks whether the user actually gave a time, not just whether SOME
+    datetime came back."""
+    return bool(time_phrase) and extract_time_of_day(time_phrase) is not None
+
+
+def _task_due_iso(dt: datetime) -> str:
+    # Google Tasks' `due` field requires a full RFC3339 timestamp with a UTC
+    # marker (it discards the time-of-day regardless), so only the date part
+    # is meaningful -- always serialize as UTC midnight rather than pass the
+    # naive local wall-clock time through, which Google's API rejects outright.
+    return f"{dt.date().isoformat()}T00:00:00.000Z"
 
 
 def interpret_node(state: AgentState) -> dict:
@@ -101,7 +117,7 @@ def create_node(state: AgentState) -> dict:
 
     resolved = resolve_instant(interp.time_phrase, now) if interp.time_phrase else None
 
-    if is_calendar and resolved is None:
+    if is_calendar and (resolved is None or not _has_explicit_time(interp.time_phrase)):
         return {
             "response": ChatResponse(
                 type="clarify", message=f'What time should "{interp.title}" be?'
@@ -123,7 +139,7 @@ def create_node(state: AgentState) -> dict:
         summary_line = f'Create "{interp.title}" on {resolved.strftime("%A %b %d at %I:%M %p")}'
         action = "calendar.create"
     else:
-        params = {"title": interp.title, "due": resolved.isoformat() if resolved else None}
+        params = {"title": interp.title, "due": _task_due_iso(resolved) if resolved else None}
         due_note = f' due {resolved.strftime("%A %b %d")}' if resolved else ""
         summary_line = f'Create task "{interp.title}"{due_note}'
         action = "task.create"
@@ -176,7 +192,7 @@ def mutate_existing_node(state: AgentState) -> dict:
         summary_line = f'Mark "{target["title"]}" as completed'
     elif interp.intent == "calendar_update":
         new_time = resolve_instant(interp.time_phrase, now) if interp.time_phrase else None
-        if interp.time_phrase and new_time is None:
+        if interp.time_phrase and (new_time is None or not _has_explicit_time(interp.time_phrase)):
             return {
                 "response": ChatResponse(
                     type="clarify", message=f'What time should I move "{target["summary"]}" to?'
@@ -200,7 +216,7 @@ def mutate_existing_node(state: AgentState) -> dict:
     else:  # task_update
         new_due = resolve_instant(interp.time_phrase, now) if interp.time_phrase else None
         if new_due:
-            params["due"] = new_due.isoformat()
+            params["due"] = _task_due_iso(new_due)
         if interp.title:
             params["title"] = interp.title
         if not params:

@@ -54,9 +54,14 @@ _TOOL_SCHEMA = {
                 "time_phrase": {
                     "type": ["string", "null"],
                     "description": (
-                        "The user's own words naming when a single event/task should happen, "
-                        "e.g. 'tomorrow 3pm', 'next Monday morning'. Copy verbatim/near-verbatim "
-                        "-- do not resolve it into a date yourself."
+                        "A phrase naming when a single event/task should happen, e.g. 'tomorrow "
+                        "3pm', 'next Monday morning'. Must include BOTH a date reference (today/"
+                        "tomorrow/a weekday) AND a time-of-day if either was mentioned anywhere in "
+                        "this conversation -- if the date was given in an earlier turn (e.g. "
+                        "assistant asked 'what time?' after the user said 'tomorrow') and the "
+                        "user's latest message only supplies the time (e.g. '3pm'), COMBINE them "
+                        "into one phrase covering both, e.g. 'tomorrow 3pm'. Do not resolve the "
+                        "phrase into an actual date yourself -- just make sure it's complete."
                     ),
                 },
                 "range_phrase": {

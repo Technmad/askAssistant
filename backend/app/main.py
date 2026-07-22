@@ -8,8 +8,8 @@ from .agent.schema import ChatRequest, ChatResponse, ExecuteRequest, ExecuteResp
 from .auth import get_current_user
 from .auth import router as auth_router
 from .config import settings
-from .debug_routes import router as debug_router
 from .services import calendar as calendar_service
+from .services import tasks as tasks_service
 
 app = FastAPI(title="AI Personal Assistant")
 
@@ -22,7 +22,6 @@ app.add_middleware(
 )
 
 app.include_router(auth_router)
-app.include_router(debug_router)
 
 
 @app.get("/health")
@@ -32,12 +31,22 @@ def health():
 
 @app.get("/calendar/events")
 def list_upcoming_events(user_email: str = Depends(get_current_user)):
-    """Auth-spike proof: login -> JWT -> one real Google Calendar API call."""
+    """Upcoming events for the side panel -- read-only, no agent involved."""
     try:
         events = calendar_service.list_events(user_email, max_results=10)
     except HttpError as exc:
         raise HTTPException(status_code=502, detail=f"Google Calendar API error: {exc}") from exc
     return {"events": events}
+
+
+@app.get("/tasks/open")
+def list_open_tasks(user_email: str = Depends(get_current_user)):
+    """Open tasks for the side panel -- read-only, no agent involved."""
+    try:
+        tasks = [t for t in tasks_service.list_tasks(user_email) if t["status"] != "completed"]
+    except HttpError as exc:
+        raise HTTPException(status_code=502, detail=f"Google Tasks API error: {exc}") from exc
+    return {"tasks": tasks}
 
 
 @app.post("/chat", response_model=ChatResponse)
