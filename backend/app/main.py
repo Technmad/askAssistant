@@ -71,7 +71,7 @@ def chat(body: ChatRequest, user_email: str = Depends(get_current_user)):
 
 @app.post("/execute", response_model=ExecuteResponse)
 def execute(body: ExecuteRequest, user_email: str = Depends(get_current_user)):
-    return execute_action(user_email, body.proposed_action)
+    return execute_action(user_email, body.proposed_action, body.timezone)
 
 
 @app.post("/transcribe")

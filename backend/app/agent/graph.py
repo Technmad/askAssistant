@@ -90,6 +90,23 @@ def _task_due_iso(dt: datetime) -> str:
     return f"{dt.date().isoformat()}T00:00:00.000Z"
 
 
+_ATTENDEE_FALLBACK_PATTERN = re.compile(r"\bwith\s+([A-Z][a-zA-Z]+)\b")
+
+
+def _fallback_attendee_name(*texts: str) -> str | None:
+    """The LLM inconsistently recognizes "with {Name}" as an attendee to
+    invite -- observed silently dropping a real name (title became "Meeting
+    with Rishabh" but attendee_names stayed empty, so nobody got invited).
+    A false-positive match here just costs one extra "what's X's email?"
+    clarify question; a missed real name costs a meeting nobody finds out
+    about -- the asymmetry favors this deterministic catch-all."""
+    for text in texts:
+        match = _ATTENDEE_FALLBACK_PATTERN.search(text)
+        if match:
+            return match.group(1)
+    return None
+
+
 _BULK_PATTERN = re.compile(
     r"\ball(?:\s+(?:of\s+them|four|4|three|3|two|2))?\b|\bboth\b|\bevery(?:\s+one)?\b|\beach\s+one\b",
     re.IGNORECASE,
@@ -251,6 +268,11 @@ def create_node(state: AgentState) -> dict:
     if not title:
         return {"response": ChatResponse(type="clarify", message="What should I call this?").model_dump()}
     interp.title = title
+
+    if is_calendar and not interp.attendee_names:
+        fallback_name = _fallback_attendee_name(title, state["message"])
+        if fallback_name:
+            interp.attendee_names = [fallback_name]
 
     if interp.attendee_names and not interp.attendee_emails:
         resolved_emails: list[str] = []

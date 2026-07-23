@@ -72,7 +72,10 @@ export async function executeAction(proposedAction: ProposedAction): Promise<Cha
   const res = await apiFetch("/execute", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ proposed_action: proposedAction }),
+    body: JSON.stringify({
+      proposed_action: proposedAction,
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    }),
   });
   if (!res.ok) throw new Error(await res.text());
   return res.json();

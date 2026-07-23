@@ -80,6 +80,8 @@ class ChatResponse(BaseModel):
 
 class ExecuteRequest(BaseModel):
     proposed_action: ProposedAction
+    timezone: str  # IANA name -- so the result message reports back in the
+    # user's own local time, not whatever offset Google's API returned it in.
 
 
 class ExecuteResponse(BaseModel):

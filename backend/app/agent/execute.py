@@ -7,12 +7,26 @@ already-deleted event; Tasks' delete is idempotent and never does).
 """
 
 import time
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from googleapiclient.errors import HttpError
 
 from ..services import calendar as calendar_service
 from ..services import tasks as tasks_service
 from .schema import ExecuteResponse, ProposedAction, ReferencedEntity
+
+
+def _format_local(iso: str, timezone_name: str) -> str:
+    """Result messages must show the user's own local time -- Google's API
+    returns timestamps in whatever offset it stored them as (observed: UTC),
+    and dumping that raw ISO string read as a jarring, wrong-looking time
+    (a 5pm IST meeting reported back as "11:30 UTC")."""
+    try:
+        dt = datetime.fromisoformat(iso).astimezone(ZoneInfo(timezone_name))
+    except ValueError:
+        return iso
+    return dt.strftime("%A %b %d at %I:%M %p")
 
 _DEDUPE_TTL_SECONDS = 600
 # Keyed by (user_email, request_id) -- request_id is generated fresh per
@@ -41,13 +55,13 @@ def _is_gone(exc: HttpError) -> bool:
     return exc.resp.status in (404, 410)
 
 
-def execute_action(user_email: str, action: ProposedAction) -> ExecuteResponse:
+def execute_action(user_email: str, action: ProposedAction, timezone_name: str) -> ExecuteResponse:
     cached = _cache_get(user_email, action.request_id)
     if cached is not None:
         return ExecuteResponse(**cached)
 
     try:
-        response = _dispatch(user_email, action)
+        response = _dispatch(user_email, action, timezone_name)
     except HttpError as exc:
         if action.entity_id and _is_gone(exc):
             response = ExecuteResponse(
@@ -61,19 +75,19 @@ def execute_action(user_email: str, action: ProposedAction) -> ExecuteResponse:
     return response
 
 
-def _dispatch(user_email: str, action: ProposedAction) -> ExecuteResponse:
+def _dispatch(user_email: str, action: ProposedAction, timezone_name: str) -> ExecuteResponse:
     if action.action == "calendar.create":
         event = calendar_service.create_event(user_email, **action.params)
         return ExecuteResponse(
             type="result",
-            message=f'Created "{event["summary"]}" on {event["start"]}.',
+            message=f'Created "{event["summary"]}" on {_format_local(event["start"], timezone_name)}.',
             referenced_entity=ReferencedEntity(type="event", id=event["id"], summary=event["summary"]),
         )
     if action.action == "calendar.update":
         event = calendar_service.update_event(user_email, action.entity_id, **action.params)
         return ExecuteResponse(
             type="result",
-            message=f'Updated "{event["summary"]}".',
+            message=f'Updated "{event["summary"]}" -- now on {_format_local(event["start"], timezone_name)}.',
             referenced_entity=ReferencedEntity(type="event", id=event["id"], summary=event["summary"]),
         )
     if action.action == "calendar.delete":
