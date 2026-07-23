@@ -1,4 +1,7 @@
-# AI Personal Assistant — Google Calendar & Tasks
+<div align="center">
+
+# AI Personal Assistant
+### Google Calendar & Tasks, by voice or text
 
 ![Python](https://img.shields.io/badge/python-3.12+-3776AB?logo=python&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.139-009688?logo=fastapi&logoColor=white)
@@ -7,14 +10,14 @@
 ![Groq](https://img.shields.io/badge/Groq-Llama%203.1%20%2B%20Whisper-F55036?logo=groq&logoColor=white)
 ![Google APIs](https://img.shields.io/badge/Google-Calendar%20%C2%B7%20Tasks%20%C2%B7%20People-4285F4?logo=google&logoColor=white)
 
-A natural-language assistant for Google Calendar and Google Tasks — voice or text, with a full read → confirm → execute loop so nothing touches your real calendar without you saying "yes." Built for the callkaro.ai take-home assignment.
+A natural-language assistant for Google Calendar and Google Tasks — with a full read → confirm → execute loop so nothing touches your real calendar without you saying "yes."
+Built for the callkaro.ai take-home assignment.
 
-|  |  |
-|---|---|
-| **Live app** | https://ask-assistant-three.vercel.app |
-| **Backend API** | https://askassistant-production.up.railway.app |
-| **Demo video** | _link goes here_ |
-| **Source** | https://github.com/Technmad/askAssistant |
+**[Live App](https://ask-assistant-three.vercel.app)** &nbsp;·&nbsp; **[Backend API](https://askassistant-production.up.railway.app)** &nbsp;·&nbsp; **Demo Video** _(link coming soon)_ &nbsp;·&nbsp; **[Source](https://github.com/Technmad/askAssistant)**
+
+</div>
+
+---
 
 > **Access note:** Google's OAuth consent screen for this project is in **Testing** publishing status (see [Known limitations](#known-limitations)). If login doesn't work for you, that's why — watch the demo video, or ask to be added as a test user.
 
