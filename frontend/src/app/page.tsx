@@ -117,7 +117,11 @@ export default function Home() {
     if (!text || sending) return;
 
     const userMessage: Message = { id: newId(), role: "user", content: text };
-    const history: HistoryTurn[] = [...messages, userMessage]
+    // sendChat below already sends `text` as the current turn -- history must
+    // hold only what came BEFORE it, or the current message duplicates itself
+    // as the last history entry and eats one turn of real context out of the
+    // bounded window.
+    const history: HistoryTurn[] = messages
       .filter((m) => m.id !== "welcome")
       .map((m) => ({ role: m.role, content: m.content }));
 

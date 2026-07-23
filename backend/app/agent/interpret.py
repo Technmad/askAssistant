@@ -49,7 +49,13 @@ _TOOL_SCHEMA = {
                         "my dentist appointment to Dental checkup'). Merely referring to an existing "
                         "item by a descriptive phrase ('my submit budget task', 'the dentist "
                         "appointment') is NOT a rename request -- that phrase belongs in target_phrase "
-                        "only, never copied into title as well."
+                        "only, never copied into title as well. A CREATE is only a continuation of an "
+                        "earlier turn's title/attendee when it's directly answering a still-OPEN "
+                        "clarifying question about that same unfinished request. Once an assistant "
+                        "message starting with 'Created' has appeared, that request is done -- a later, "
+                        "vague CREATE ('schedule a meeting tomorrow') that names no one and nothing is a "
+                        "brand-new request with an unknown title, never a reuse of an earlier, already-"
+                        "completed one, even if it sounds similar."
                     ),
                 },
                 "time_phrase": {
@@ -92,7 +98,16 @@ _TOOL_SCHEMA = {
                 "attendee_names": {
                     "type": ["array", "null"],
                     "items": {"type": "string"},
-                    "description": "Names of people to invite, exactly as the user said them (e.g. 'John'). Null or empty if none mentioned.",
+                    "description": (
+                        "Names of people to invite, exactly as the user said them (e.g. 'John'). Null "
+                        "or empty if none mentioned in THIS request. Only carry a name over from an "
+                        "earlier turn if this message is directly answering a still-OPEN clarifying "
+                        "question about that same unfinished request (e.g. the assistant just asked "
+                        "for their email). Once that request has been completed (an assistant message "
+                        "starting with 'Created' appeared), a later CREATE that names no one is a "
+                        "brand-new request with no attendees -- never reuse an earlier, already-invited "
+                        "person just because the new request also mentions 'a meeting'."
+                    ),
                 },
                 "attendee_emails": {
                     "type": ["array", "null"],
