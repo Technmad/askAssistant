@@ -35,6 +35,59 @@ _WEEKDAY_RE = re.compile(
     re.IGNORECASE,
 )
 
+_MONTHS = {
+    "jan": 1, "january": 1,
+    "feb": 2, "february": 2,
+    "mar": 3, "march": 3,
+    "apr": 4, "april": 4,
+    "may": 5,
+    "jun": 6, "june": 6,
+    "jul": 7, "july": 7,
+    "aug": 8, "august": 8,
+    "sep": 9, "sept": 9, "september": 9,
+    "oct": 10, "october": 10,
+    "nov": 11, "november": 11,
+    "dec": 12, "december": 12,
+}  # fmt: skip
+_MONTH_NAME_RE = "|".join(sorted(_MONTHS, key=len, reverse=True))
+
+# "26 July" / "26th July 2027" -- day before month name.
+_DAY_MONTH_RE = re.compile(
+    rf"\b(?P<day>[0-3]?\d)(?:st|nd|rd|th)?\s+(?P<month>{_MONTH_NAME_RE})\b(?:\s+(?P<year>\d{{4}}))?",
+    re.IGNORECASE,
+)
+# "July 26" / "July 26th, 2027" -- month name before day.
+_MONTH_DAY_RE = re.compile(
+    rf"\b(?P<month>{_MONTH_NAME_RE})\s+(?P<day>[0-3]?\d)(?:st|nd|rd|th)?\b(?:,?\s+(?P<year>\d{{4}}))?",
+    re.IGNORECASE,
+)
+
+
+def _parse_absolute_date(lowered: str, now: datetime) -> date | None:
+    """An explicit calendar date named outright ("26 July", "July 26th,
+    2027"), as opposed to a relative reference -- the two-arrangement forms
+    cover how people actually say dates in speech and text, in either order,
+    since a spoken-language assistant can't assume one fixed order."""
+    match = _DAY_MONTH_RE.search(lowered) or _MONTH_DAY_RE.search(lowered)
+    if not match:
+        return None
+
+    day = int(match.group("day"))
+    month = _MONTHS[match.group("month").lower()]
+    year = int(match.group("year")) if match.group("year") else now.year
+
+    try:
+        resolved = date(year, month, day)
+    except ValueError:
+        return None
+
+    # No year stated and the plain date already passed this year -- assume
+    # next year, same as the "weekday already happened this week" rule below.
+    if not match.group("year") and resolved < now.date():
+        resolved = date(year + 1, month, day)
+
+    return resolved
+
 
 @dataclass
 class ResolvedRange:
@@ -80,6 +133,10 @@ def parse_relative_date(phrase: str, now: datetime) -> date | None:
         return (now + timedelta(days=1)).date()
     if "today" in lowered or "tonight" in lowered:
         return now.date()
+
+    absolute = _parse_absolute_date(lowered, now)
+    if absolute is not None:
+        return absolute
 
     match = _WEEKDAY_RE.search(lowered)
     if not match:

@@ -68,6 +68,30 @@ class TestParseRelativeDate:
         assert parse_relative_date("as soon as possible", WED) is None
 
 
+class TestParseAbsoluteDate:
+    # Found live: "schedule a meeting with asmita on 26 july 12 pm" asked
+    # "What day should this be?" even though the day WAS given -- the
+    # resolver only understood relative phrases, never an outright date.
+    def test_day_then_month(self):
+        assert parse_relative_date("26 july 12 pm", WED) == datetime(2026, 7, 26).date()
+
+    def test_month_then_day(self):
+        assert parse_relative_date("July 26 12pm", WED) == datetime(2026, 7, 26).date()
+
+    def test_ordinal_suffix(self):
+        assert parse_relative_date("26th July", WED) == datetime(2026, 7, 26).date()
+
+    def test_explicit_year(self):
+        assert parse_relative_date("July 26th, 2027", WED) == datetime(2027, 7, 26).date()
+
+    def test_past_date_this_year_rolls_to_next_year(self):
+        # WED is 2026-07-22 -- July 10 has already passed this year.
+        assert parse_relative_date("10 July", WED) == datetime(2027, 7, 10).date()
+
+    def test_resolve_instant_combines_absolute_date_and_time(self):
+        assert resolve_instant("26 july 12 pm", WED) == datetime(2026, 7, 26, 12, 0)
+
+
 class TestSameDayWeekdayRule:
     """The documented ambiguity: 'Friday' said on a Friday. §3."""
 
