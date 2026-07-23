@@ -1,3 +1,4 @@
 *.log
 .DS_Store
 .claude/
+DEMO_SCRIPT.md
