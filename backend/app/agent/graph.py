@@ -32,6 +32,33 @@ from .state import AgentState
 
 DEFAULT_EVENT_DURATION_MINUTES = 30
 
+_EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
+
+
+def _user_stated_emails(state: AgentState) -> set[str]:
+    """Only text the USER actually typed can vouch for an attendee's email --
+    never the assistant's own earlier turns. Found live: after a real contact
+    ("Asmita" -> asmita.ria103@gmail.com) was resolved and echoed back in a
+    confirm message, a LATER unrelated request ("schedule a meeting with
+    Ankit...") came back with attendee_emails=["ankit.ria103@gmail.com"] --
+    a fabricated address pattern-completed from the assistant's own earlier
+    text, for a name with zero match in the real Google Contacts data. The
+    LLM's attendee_emails field is instructed to never invent an email, but
+    that's a prompt-level rule with no code-level enforcement -- this closes
+    it deterministically instead."""
+    texts = [state["message"]]
+    texts.extend(t["content"] for t in state.get("recent_history", []) if t.get("role") == "user")
+    stated: set[str] = set()
+    for text in texts:
+        stated.update(m.group(0).lower() for m in _EMAIL_RE.finditer(text))
+    return stated
+
+
+def _verified_attendee_emails(state: AgentState, candidate_emails: list[str]) -> list[str]:
+    stated = _user_stated_emails(state)
+    return [e for e in candidate_emails if e.lower() in stated]
+
+
 _ENTITY_TYPE_FOR_INTENT = {
     "calendar_update": "event",
     "calendar_delete": "event",
@@ -325,6 +352,9 @@ def create_node(state: AgentState) -> dict:
         fallback_name = _fallback_attendee_name(title, state["message"])
         if fallback_name:
             interp.attendee_names = [fallback_name]
+
+    if interp.attendee_emails:
+        interp.attendee_emails = _verified_attendee_emails(state, interp.attendee_emails)
 
     if interp.attendee_names and not interp.attendee_emails:
         resolved_emails: list[str] = []

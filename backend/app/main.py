@@ -1,6 +1,7 @@
 from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from googleapiclient.errors import HttpError
+from groq import GroqError
 
 from .agent.execute import execute_action
 from .agent.graph import agent_graph
@@ -65,7 +66,17 @@ def chat(body: ChatRequest, user_email: str = Depends(get_current_user)):
         "timezone": body.timezone,
         "user_email": user_email,
     }
-    result = agent_graph.invoke(state)
+    try:
+        result = agent_graph.invoke(state)
+    except GroqError as exc:
+        # The LLM step is the one call in this flow with an external rate
+        # limit -- letting it crash into a raw 500 with no explanation is far
+        # worse than a plain-language "try again shortly", especially since
+        # nothing has mutated yet at this point (interpret runs before any
+        # write), so there's nothing unsafe about just asking to retry.
+        raise HTTPException(
+            status_code=503, detail=f"The AI service is temporarily unavailable ({exc.__class__.__name__}) -- please try again in a minute."
+        ) from exc
     return result["response"]
 
 
