@@ -36,7 +36,9 @@ declare global {
 export function useSpeechRecognition(onFinalResult: (text: string) => void) {
   const [supported, setSupported] = useState(false);
   const [listening, setListening] = useState(false);
+  const [lastError, setLastError] = useState<string | null>(null);
   const recognitionRef = useRef<MinimalSpeechRecognition | null>(null);
+  const gotResultRef = useRef(false);
   const callbackRef = useRef(onFinalResult);
   useEffect(() => {
     callbackRef.current = onFinalResult;
@@ -61,17 +63,29 @@ export function useSpeechRecognition(onFinalResult: (text: string) => void) {
     recognition.onresult = (event) => {
       const lastResult = event.results[event.results.length - 1];
       if (lastResult.isFinal) {
+        gotResultRef.current = true;
         callbackRef.current(lastResult[0].transcript);
       }
     };
-    recognition.onend = () => setListening(false);
-    recognition.onerror = () => setListening(false);
+    recognition.onend = () => {
+      setListening(false);
+      // This browser's recognition is cloud-based (audio round-trips to a
+      // speech service), not purely on-device -- a network hiccup, a denied
+      // mic permission, or genuine silence can all end the session with no
+      // error event at all, just a resultless onend. Previously this looked
+      // identical to a successful, silent no-op: the mic just stopped and
+      // nothing was ever sent, with no way to tell why.
+      if (!gotResultRef.current) setLastError("no-speech");
+    };
+    recognition.onerror = (event) => setLastError(event.error || "unknown");
 
     recognitionRef.current = recognition;
   }, []);
 
   const start = () => {
     if (!recognitionRef.current || listening) return;
+    gotResultRef.current = false;
+    setLastError(null);
     try {
       recognitionRef.current.start();
       setListening(true);
@@ -86,7 +100,7 @@ export function useSpeechRecognition(onFinalResult: (text: string) => void) {
     recognitionRef.current?.stop();
   };
 
-  return { supported, listening, start, stop };
+  return { supported, listening, lastError, start, stop };
 }
 
 // Fallback for browsers with no SpeechRecognition (Safari, Firefox, most
@@ -98,6 +112,7 @@ function useMediaRecorderFallback(onFinalResult: (text: string) => void) {
   const [supported, setSupported] = useState(false);
   const [listening, setListening] = useState(false);
   const [transcribing, setTranscribing] = useState(false);
+  const [lastError, setLastError] = useState<string | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
@@ -117,6 +132,7 @@ function useMediaRecorderFallback(onFinalResult: (text: string) => void) {
 
   const start = async () => {
     if (listening || transcribing) return;
+    setLastError(null);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
@@ -135,9 +151,12 @@ function useMediaRecorderFallback(onFinalResult: (text: string) => void) {
         try {
           const text = await transcribeAudio(blob, `voice-input.${ext}`);
           if (text) callbackRef.current(text);
-        } catch {
-          // Transcription failure is surfaced by simply not sending anything --
-          // the user sees the mic stop listening and can just try again.
+          else setLastError("empty transcript");
+        } catch (err) {
+          // Previously silent -- a transcription failure (e.g. the Whisper
+          // call hitting the same Groq rate limit as chat) looked identical
+          // to the user just not having said anything.
+          setLastError(err instanceof Error ? err.message : "transcription failed");
         } finally {
           setTranscribing(false);
         }
@@ -150,6 +169,7 @@ function useMediaRecorderFallback(onFinalResult: (text: string) => void) {
       // getUserMedia rejected (permission denied, no mic) -- nothing to
       // recover into, the mic button just goes back to idle.
       setListening(false);
+      setLastError("microphone permission denied");
     }
   };
 
@@ -157,7 +177,7 @@ function useMediaRecorderFallback(onFinalResult: (text: string) => void) {
     recorderRef.current?.stop();
   };
 
-  return { supported, listening: listening || transcribing, start, stop };
+  return { supported, listening: listening || transcribing, lastError, start, stop };
 }
 
 // Single entry point for the mic button: use native on-device recognition

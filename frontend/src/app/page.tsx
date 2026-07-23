@@ -200,11 +200,23 @@ export default function Home() {
   const {
     supported: voiceSupported,
     listening,
+    lastError: voiceError,
     start: startListening,
     stop: stopListening,
   } = useVoiceInput((transcript) => {
     handleSend(transcript);
   });
+
+  useEffect(() => {
+    // Voice failures (permission denial, no speech detected, a transcription
+    // error) used to be entirely silent -- the mic would just stop and
+    // nothing happened, indistinguishable from the user not having spoken.
+    if (!voiceError) return;
+    setMessages((prev) => [
+      ...prev,
+      { id: newId(), role: "assistant", content: `Didn't catch that (${voiceError}) -- try again.`, isError: true },
+    ]);
+  }, [voiceError]);
 
   function toggleListening() {
     if (listening) stopListening();
