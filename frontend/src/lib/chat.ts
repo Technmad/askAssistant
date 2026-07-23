@@ -5,7 +5,7 @@ export type HistoryTurn = { role: "user" | "assistant"; content: string };
 export type ReferencedEntity = { type: "event" | "task"; id: string; summary: string };
 
 export type DisambiguationOption = { id: string; name: string; label: string; when?: string | null };
-export type Disambiguation = { entity_type: "event" | "task"; options: DisambiguationOption[] };
+export type Disambiguation = { entity_type: "event" | "task"; intent: string; options: DisambiguationOption[] };
 
 export type ProposedAction = {
   request_id: string;

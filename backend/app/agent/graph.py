@@ -291,8 +291,14 @@ def create_node(state: AgentState) -> dict:
             "attendees": interp.attendee_emails or None,
         }
         conflicts = _find_conflicts(state["user_email"], resolved, end, state["timezone"])
+        # Whether an attendee was actually resolved (vs. silently dropped,
+        # e.g. a name the LLM didn't extract as an attendee at all) must be
+        # visible in the confirm step -- otherwise there's no way to notice
+        # an invite silently not going out.
+        attendee_note = f" with {', '.join(interp.attendee_emails)}" if interp.attendee_emails else ""
         summary_line = (
-            f'Create "{interp.title}" on {resolved.strftime("%A %b %d at %I:%M %p")}{_conflict_note(conflicts)}'
+            f'Create "{interp.title}"{attendee_note} on '
+            f'{resolved.strftime("%A %b %d at %I:%M %p")}{_conflict_note(conflicts)}'
         )
         action = "calendar.create"
     else:
@@ -312,24 +318,45 @@ def create_node(state: AgentState) -> dict:
 def mutate_existing_node(state: AgentState) -> dict:
     interp = state["interpretation"]
     now = _now_dt(state)
-    entity_type = _ENTITY_TYPE_FOR_INTENT[interp.intent]
+    pending = state.get("pending_disambiguation")
+
+    # A terse follow-up ("3pm", "all", "the second one") gives the model
+    # little to classify from, and it can misfire (observed: re-classified
+    # an event-disambiguation reply as a task intent). If the reply matches
+    # what was ACTUALLY offered last turn, trust THAT turn's original intent
+    # over this one's fresh (re)classification, not just its entity type.
+    effective_intent = interp.intent
+    target = None
+    if pending:
+        matched = _match_pending_candidate(state["message"], pending["options"], state["timezone"])
+        if matched:
+            effective_intent = pending["intent"]
+            pending_label_key = "summary" if pending["entity_type"] == "event" else "title"
+            target = {"id": matched["id"], pending_label_key: matched["name"]}
+
+    entity_type = _ENTITY_TYPE_FOR_INTENT[effective_intent]
     label_key = "summary" if entity_type == "event" else "title"
     noun = "event" if entity_type == "event" else "task"
 
-    if _mentions_bulk(state["message"]):
+    if target is None and _mentions_bulk(state["message"]):
+        if pending:
+            # Re-attach the SAME options rather than drop them -- otherwise
+            # telling the user "one at a time" also silently wipes the very
+            # context they'd need to answer that with a specific reply.
+            pending_noun = "event" if pending["entity_type"] == "event" else "task"
+            return {
+                "response": ChatResponse(
+                    type="clarify",
+                    message=f"I can only act on one {pending_noun} at a time right now -- which specific one did you mean?",
+                    disambiguation=Disambiguation(**pending),
+                ).model_dump()
+            }
         return {
             "response": ChatResponse(
                 type="clarify",
                 message=f"I can only act on one {noun} at a time right now -- which specific one did you mean?",
             ).model_dump()
         }
-
-    pending = state.get("pending_disambiguation")
-    target = None
-    if pending and pending.get("entity_type") == entity_type:
-        matched = _match_pending_candidate(state["message"], pending["options"], state["timezone"])
-        if matched:
-            target = {"id": matched["id"], label_key: matched["name"]}
 
     if target is None:
         if not interp.target_phrase:
@@ -339,7 +366,7 @@ def mutate_existing_node(state: AgentState) -> dict:
             entity_type,
             interp.target_phrase,
             state["user_email"],
-            include_completed_tasks=interp.intent == "task_reopen",
+            include_completed_tasks=effective_intent == "task_reopen",
         )
 
         if result.status == "not_found":
@@ -364,24 +391,24 @@ def mutate_existing_node(state: AgentState) -> dict:
                 "response": ChatResponse(
                     type="clarify",
                     message=message,
-                    disambiguation=Disambiguation(entity_type=entity_type, options=options),
+                    disambiguation=Disambiguation(entity_type=entity_type, intent=effective_intent, options=options),
                 ).model_dump()
             }
 
         target = result.candidates[0]
-    action = _MUTATE_ACTION[interp.intent]
+    action = _MUTATE_ACTION[effective_intent]
     request_id = _new_request_id()
     params: dict = {}
 
-    if interp.intent == "calendar_delete":
+    if effective_intent == "calendar_delete":
         summary_line = f'Delete "{target["summary"]}"'
-    elif interp.intent == "task_delete":
+    elif effective_intent == "task_delete":
         summary_line = f'Delete task "{target["title"]}"'
-    elif interp.intent == "task_complete":
+    elif effective_intent == "task_complete":
         summary_line = f'Mark "{target["title"]}" as completed'
-    elif interp.intent == "task_reopen":
+    elif effective_intent == "task_reopen":
         summary_line = f'Reopen "{target["title"]}" (mark as not completed)'
-    elif interp.intent == "calendar_update":
+    elif effective_intent == "calendar_update":
         new_time = resolve_instant(interp.time_phrase, now) if interp.time_phrase else None
         if interp.time_phrase:
             missing = _missing_datetime_part(interp.time_phrase, now)

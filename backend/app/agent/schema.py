@@ -39,6 +39,10 @@ class DisambiguationOption(BaseModel):
 
 class Disambiguation(BaseModel):
     entity_type: Literal["event", "task"]
+    intent: str  # the mutate intent this disambiguation was for (see graph.py
+    # _ENTITY_TYPE_FOR_INTENT) -- trusted over a terse follow-up's own
+    # (re-)classification, which has little to go on ("3pm", "all") and can
+    # misfire on exactly the kind of short reply this field exists to handle.
     options: list[DisambiguationOption]
 
 
