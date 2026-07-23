@@ -1,7 +1,7 @@
 """Refresh-token storage. SQLite for local dev (survives server restarts,
 unlike the in-memory version this replaced) -- swap for a Postgres-backed
-implementation (see PLAN.md §1/§8) behind this same get/set interface once
-Supabase is wired up for production."""
+implementation behind this same get/set interface once a managed database
+is wired up for production."""
 
 import sqlite3
 from dataclasses import dataclass

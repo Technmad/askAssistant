@@ -1,7 +1,7 @@
 """LangGraph agent: interpret -> resolve -> respond.
 
-Stateless per call -- no checkpointer, no interrupt() (see PLAN.md's
-stateless-confirmation decision). Every /chat call re-derives everything
+Stateless per call -- no checkpointer, no interrupt(), a deliberate
+confirm-before-mutate design. Every /chat call re-derives everything
 fresh from the request payload; only the LLM step (interpret_node) is
 non-deterministic, everything downstream is plain, testable Python.
 """
@@ -59,6 +59,38 @@ def _now_dt(state: AgentState) -> datetime:
     return datetime.fromisoformat(state["now"])
 
 
+def _format_display_dt(raw: str | None, timezone_name: str, *, date_only: bool = False) -> str:
+    """Read-query messages must show a human-readable local time, not
+    Google's raw ISO timestamp verbatim -- the same principle already
+    applied to propose/result messages, just missing here until now."""
+    if not raw:
+        return ""
+    try:
+        dt = datetime.fromisoformat(raw)
+    except ValueError:
+        return raw
+    if dt.tzinfo is not None:
+        dt = dt.astimezone(ZoneInfo(timezone_name))
+    return dt.strftime("%a %b %d") if date_only else dt.strftime("%a %b %d, %I:%M %p")
+
+
+def _existing_local_dt(raw: str | None, timezone_name: str) -> datetime | None:
+    """Parses a target's own current start/due time into a naive local
+    datetime, so an update that only supplies half of a new date/time
+    ("push it to 2pm") can fill in the other half from what the event is
+    ALREADY scheduled for, instead of asking the user to repeat information
+    they weren't trying to change in the first place."""
+    if not raw:
+        return None
+    try:
+        dt = datetime.fromisoformat(raw)
+    except ValueError:
+        return None
+    if dt.tzinfo is not None:
+        dt = dt.astimezone(ZoneInfo(timezone_name)).replace(tzinfo=None)
+    return dt
+
+
 def _missing_datetime_part(time_phrase: str | None, now: datetime) -> str | None:
     """Returns 'date', 'time', 'both', or None (fully specified) for a
     calendar event. A phrase can independently lack either half ("2pm" has
@@ -90,7 +122,11 @@ def _task_due_iso(dt: datetime) -> str:
     return f"{dt.date().isoformat()}T00:00:00.000Z"
 
 
-_ATTENDEE_FALLBACK_PATTERN = re.compile(r"\bwith\s+([A-Z][a-zA-Z]+)\b")
+_ATTENDEE_FALLBACK_PATTERN = re.compile(r"\bwith\s+([a-zA-Z]+)\b", re.IGNORECASE)
+_ATTENDEE_STOPWORDS = {
+    "the", "a", "an", "my", "our", "some", "someone", "everyone", "everybody",
+    "team", "group", "them", "him", "her", "you", "us", "people", "others",
+}  # fmt: skip
 
 
 def _fallback_attendee_name(*texts: str) -> str | None:
@@ -99,11 +135,16 @@ def _fallback_attendee_name(*texts: str) -> str | None:
     with Rishabh" but attendee_names stayed empty, so nobody got invited).
     A false-positive match here just costs one extra "what's X's email?"
     clarify question; a missed real name costs a meeting nobody finds out
-    about -- the asymmetry favors this deterministic catch-all."""
+    about -- the asymmetry favors this deterministic catch-all.
+
+    Case-insensitive on purpose: casual chat input often doesn't capitalize
+    names ("with priyanka" silently missed the original capital-only regex),
+    and a stopword list keeps the now-broader match from firing on "with the
+    team"/"with someone" once capitalization can no longer disambiguate."""
     for text in texts:
         match = _ATTENDEE_FALLBACK_PATTERN.search(text)
-        if match:
-            return match.group(1)
+        if match and match.group(1).lower() not in _ATTENDEE_STOPWORDS:
+            return match.group(1).capitalize()
     return None
 
 
@@ -242,6 +283,17 @@ def interpret_node(state: AgentState) -> dict:
 
 
 def route_after_interpret(state: AgentState) -> str:
+    # A terse disambiguation reply ("the 6pm one", "the first one") gives the
+    # classifier almost nothing to go on, and it can misfire onto an unrelated
+    # intent entirely (observed: "the 6pm one" classified as calendar_read,
+    # "the first one" as unclear) -- routing on that fresh intent then skips
+    # mutate_existing_node entirely, so the pending-match logic never even
+    # runs. If the reply actually matches one of the options just offered,
+    # trust that over the fresh classification and go straight there.
+    pending = state.get("pending_disambiguation")
+    if pending and _match_pending_candidate(state["message"], pending["options"], state["timezone"]):
+        return "mutate_existing"
+
     intent = state["interpretation"].intent
     if intent in ("calendar_create", "task_create"):
         return "create"
@@ -353,8 +405,14 @@ def mutate_existing_node(state: AgentState) -> dict:
         matched = _match_pending_candidate(state["message"], pending["options"], state["timezone"])
         if matched:
             effective_intent = pending["intent"]
-            pending_label_key = "summary" if pending["entity_type"] == "event" else "title"
-            target = {"id": matched["id"], pending_label_key: matched["name"]}
+            pending_entity_type = pending["entity_type"]
+            pending_label_key = "summary" if pending_entity_type == "event" else "title"
+            pending_time_key = "start" if pending_entity_type == "event" else "due"
+            target = {
+                "id": matched["id"],
+                pending_label_key: matched["name"],
+                pending_time_key: matched.get("when"),
+            }
 
     entity_type = _ENTITY_TYPE_FOR_INTENT[effective_intent]
     label_key = "summary" if entity_type == "event" else "title"
@@ -402,11 +460,18 @@ def mutate_existing_node(state: AgentState) -> dict:
         if not interp.target_phrase:
             return {"response": ChatResponse(type="clarify", message=f"Which {noun} do you mean?").model_dump()}
 
+        # Search completed tasks too, not just open ones -- deleting an
+        # already-completed task (cleanup) or updating one are both
+        # legitimate, and none of these actions are unsafe to apply to a
+        # completed task (re-completing is idempotent, reopening is the
+        # point). Restricting the search to open-only was only ever
+        # necessary for task_reopen; broadening it fixes task_delete and
+        # task_update silently failing to find a completed target.
         result = resolve_target(
             entity_type,
             interp.target_phrase,
             state["user_email"],
-            include_completed_tasks=effective_intent == "task_reopen",
+            include_completed_tasks=entity_type == "task",
         )
 
         if result.status == "not_found":
@@ -449,16 +514,33 @@ def mutate_existing_node(state: AgentState) -> dict:
     elif effective_intent == "task_reopen":
         summary_line = f'Reopen "{target["title"]}" (mark as not completed)'
     elif effective_intent == "calendar_update":
-        new_time = resolve_instant(interp.time_phrase, now) if interp.time_phrase else None
+        new_time = None
         if interp.time_phrase:
             missing = _missing_datetime_part(interp.time_phrase, now)
-            if missing:
+            existing = _existing_local_dt(target.get("start"), state["timezone"])
+            if missing == "both" or (missing and existing is None):
+                # "both" is always an outright ask; a single missing half
+                # with no known existing schedule to fall back on is too
+                # (e.g. the target came from a fresh match with no `start`).
+                word = "day and time" if missing == "both" else _missing_part_word(missing)
                 return {
                     "response": ChatResponse(
                         type="clarify",
-                        message=f'What {_missing_part_word(missing)} should I move "{target["summary"]}" to?',
+                        message=f'What {word} should I move "{target["summary"]}" to?',
                     ).model_dump()
                 }
+            if missing == "time":
+                # A date was given but no time -- e.g. "move it to Friday"
+                # keeps the event's current time-of-day.
+                new_date = parse_relative_date(interp.time_phrase, now)
+                new_time = datetime.combine(new_date, existing.time())
+            elif missing == "date":
+                # A time was given but no date -- e.g. "push it to 2pm"
+                # keeps the event on its current day.
+                new_time_of_day = extract_time_of_day(interp.time_phrase)
+                new_time = datetime.combine(existing.date(), new_time_of_day)
+            else:
+                new_time = resolve_instant(interp.time_phrase, now)
         if new_time:
             duration = interp.duration_minutes or DEFAULT_EVENT_DURATION_MINUTES
             params["start"] = new_time.isoformat()
@@ -493,7 +575,14 @@ def mutate_existing_node(state: AgentState) -> dict:
                     type="clarify", message=f'What should change about "{target["title"]}"?'
                 ).model_dump()
             }
-        summary_line = f'Update task "{target["title"]}"'
+        # Must show what's actually changing -- a bare "Update task X" gives
+        # no way to notice the wrong date/title before confirming it.
+        changes = []
+        if new_due:
+            changes.append(f'due {new_due.strftime("%a %b %d")}')
+        if interp.title:
+            changes.append(f'title to "{interp.title}"')
+        summary_line = f'Update task "{target["title"]}" -- {" and ".join(changes)}'
 
     proposed = ProposedAction(request_id=request_id, action=action, entity_id=target["id"], params=params)
     ref = ReferencedEntity(type=entity_type, id=target["id"], summary=target[label_key])
@@ -527,7 +616,9 @@ def read_node(state: AgentState) -> dict:
         if not items:
             message = "Nothing on your calendar in that range."
         else:
-            lines = [f'- {item["summary"]} ({item["start"]})' for item in items]
+            lines = [
+                f'- {item["summary"]} ({_format_display_dt(item["start"], state["timezone"])})' for item in items
+            ]
             message = "Here's what's on your calendar:\n" + "\n".join(lines)
     else:
         # Only filter by due date when the user actually named a range --
@@ -541,7 +632,11 @@ def read_node(state: AgentState) -> dict:
         if not items:
             message = "No open tasks in that range." if date_range else "No open tasks."
         else:
-            lines = [f'- {t["title"]}' + (f' (due {t["due"]})' if t["due"] else "") for t in items]
+            lines = [
+                f'- {t["title"]}'
+                + (f' (due {_format_display_dt(t["due"], state["timezone"], date_only=True)})' if t["due"] else "")
+                for t in items
+            ]
             message = "Here are your open tasks:\n" + "\n".join(lines)
 
     return {"response": ChatResponse(type="result", message=message).model_dump()}

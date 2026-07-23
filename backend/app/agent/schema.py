@@ -1,5 +1,5 @@
-"""Wire contract from PLAN.md §2 -- decided once, before the graph was
-built, so the frontend and backend evolve independently of each other."""
+"""Wire contract for the /chat and /execute API -- decided once, before
+the graph was built, so the frontend and backend evolve independently."""
 
 from typing import Literal
 
@@ -52,8 +52,8 @@ class ChatRequest(BaseModel):
     last_referenced_entity: ReferencedEntity | None = None
     # Echoed back from the previous turn's ChatResponse.disambiguation so a
     # reply like "the second one" or "the 2pm one" can be matched against
-    # what was actually offered, not re-derived from scratch (PLAN.md's
-    # stateless design means the server has no memory of its own).
+    # what was actually offered, not re-derived from scratch -- the server
+    # is stateless and has no memory of its own between requests.
     pending_disambiguation: Disambiguation | None = None
     now: str  # client's local wall-clock time, ISO 8601, naive
     timezone: str  # IANA name, e.g. "Asia/Kolkata"

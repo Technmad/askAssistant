@@ -4,8 +4,8 @@ export const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 
 // Distinguishes an expired/invalid session from any other API failure, so
-// the UI can trigger a clean re-login instead of showing a raw error
-// (PLAN.md §7: "auth expired -> frontend triggers re-login, not a silent failure").
+// the UI can trigger a clean re-login instead of showing a raw error or
+// silently failing.
 export class SessionExpiredError extends Error {
   constructor() {
     super("Session expired");

@@ -1,4 +1,4 @@
-"""The hardened /execute handler (PLAN.md §2): dedupe -> act -> cache.
+"""The hardened /execute handler: dedupe -> act -> cache.
 
 No separate pre-flight "does this still exist" check -- the mutating
 Google API call itself is the validation, and a 404/410 on that call IS

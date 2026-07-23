@@ -116,7 +116,11 @@ SYSTEM_PROMPT = (
     "about scheduling conflicts -- a separate deterministic system handles all of that. Extract "
     "only what the user actually said. If the user's message is a greeting, thanks, or unrelated "
     "to calendar/tasks, use intent=\"chitchat\". If you genuinely cannot tell what the user wants, "
-    "use intent=\"unclear\"."
+    "use intent=\"unclear\". An action verb (delete/cancel/remove, complete/mark done, update/"
+    "reschedule/move/rename, unmark/reopen) followed by ANY noun phrase is always that action's "
+    "intent, even if the noun phrase itself looks like a technical or generic term (e.g. 'sync', "
+    "'call', 'meeting', 'task') -- the event/task's title can be any word at all, so never let the "
+    "title's wording push you toward chitchat or unclear."
 )
 
 

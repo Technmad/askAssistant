@@ -1,6 +1,6 @@
 """Shared read -> match -> confirm resolution, used identically for
-Calendar events and Tasks (PLAN.md §4) so Tasks can't quietly become
-the less-tested path behind Calendar."""
+Calendar events and Tasks so Tasks can't quietly become the less-tested
+path behind Calendar."""
 
 from dataclasses import dataclass, field
 from typing import Literal

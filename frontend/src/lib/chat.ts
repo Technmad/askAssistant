@@ -33,8 +33,8 @@ export type ChatResponse = {
 export type CalendarEvent = { id: string; summary: string; start: string; end?: string };
 export type Task = { id: string; title: string; due: string | null; status: string };
 
-// Bounded to the last few turns per PLAN.md §2 -- full-transcript stuffing
-// costs tokens for no benefit and lets stale context confuse slot-filling.
+// Bounded to the last few turns -- full-transcript stuffing costs tokens
+// for no benefit and lets stale context confuse slot-filling.
 const MAX_HISTORY_TURNS = 8;
 
 export function boundedHistory(turns: HistoryTurn[]): HistoryTurn[] {

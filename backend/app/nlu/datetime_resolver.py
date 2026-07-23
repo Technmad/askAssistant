@@ -1,4 +1,4 @@
-"""Pure-logic relative datetime resolution (PLAN.md §3) -- no I/O, no LLM.
+"""Pure-logic relative datetime resolution -- no I/O, no LLM.
 
 The agent's LLM step only extracts a raw phrase like "tomorrow 3pm" or
 "next Monday morning" from the user's message; everything about what that

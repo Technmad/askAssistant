@@ -1,15 +1,41 @@
 """Read-only Google Contacts lookup so a named attendee ("John") resolves
 to an email automatically when they're an existing contact, falling back
-to asking only when they genuinely aren't (PLAN.md §5)."""
+to asking only when they genuinely aren't."""
+
+from difflib import SequenceMatcher
 
 from ..google_clients import people_client
-from ..nlu.fuzzy_match import score as fuzzy_score
 
-# Stricter than event/task matching (0.35) -- inviting the wrong person to
-# a meeting is a worse mistake than a slightly-off calendar read, so this
-# only auto-resolves a confident, unambiguous match.
-_MATCH_THRESHOLD = 0.5
+# Requires effectively a full word-for-word match (see _name_score) --
+# inviting the wrong person to a meeting is a worse mistake than a
+# slightly-off calendar read, so this only auto-resolves a confident,
+# unambiguous match. Found live: "priyanka" scored 0.57 against
+# "Priyadharsini" under plain character-overlap scoring (shared "priya-"
+# prefix), well above a naive threshold, and silently invited the wrong
+# real contact. Word-based matching below fixes the root cause; this
+# threshold is now a fraction of whole query WORDS matched, not characters.
+_MATCH_THRESHOLD = 1.0
 _AMBIGUITY_MARGIN = 0.05
+_WORD_MATCH_THRESHOLD = 0.8  # per-word typo tolerance, e.g. a single-letter slip
+# ("Rukum" vs "Rukam" -- a realistic single-letter substitution in a 5-letter
+# word -- scores exactly 0.8 on SequenceMatcher; 0.85 rejected that same typo.
+
+
+def _name_score(query: str, contact_name: str) -> float:
+    """Word-based, not character-overlap based. Character-fuzzy scoring
+    conflates "shares a prefix" with "is the same name" -- every word in
+    the query must closely match some word in the contact's full name, not
+    just overlap when both strings are flattened and compared as a whole."""
+    query_words = query.lower().split()
+    contact_words = contact_name.lower().split()
+    if not query_words:
+        return 0.0
+    matched = 0
+    for word in query_words:
+        best = max((SequenceMatcher(None, word, cw).ratio() for cw in contact_words), default=0.0)
+        if word in contact_words or best >= _WORD_MATCH_THRESHOLD:
+            matched += 1
+    return matched / len(query_words)
 
 
 def _extract(person: dict) -> dict | None:
@@ -67,7 +93,7 @@ def _list_contacts(user_email: str) -> list[dict]:
 
 
 def find_email_by_name(user_email: str, name: str) -> str | None:
-    scored = [(fuzzy_score(name, c["name"]), c) for c in _list_contacts(user_email)]
+    scored = [(_name_score(name, c["name"]), c) for c in _list_contacts(user_email)]
     scored.sort(key=lambda pair: pair[0], reverse=True)
 
     if not scored or scored[0][0] < _MATCH_THRESHOLD:
