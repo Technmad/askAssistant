@@ -380,6 +380,24 @@ def mutate_existing_node(state: AgentState) -> dict:
             ).model_dump()
         }
 
+    if target is None and pending:
+        # A reply that doesn't clearly match one of the offered candidates
+        # (e.g. two truly identical duplicates -- same name AND same time,
+        # nothing left to distinguish them by) is far more likely still
+        # answering that same question than starting an unrelated new one --
+        # re-ask with the SAME options rather than silently fall through to
+        # an independent fresh lookup, which risks a confusing "not found"
+        # from a poorly-reconstructed target phrase.
+        pending_noun = "event" if pending["entity_type"] == "event" else "task"
+        options_text = "; ".join(o["label"] for o in pending["options"])
+        return {
+            "response": ChatResponse(
+                type="clarify",
+                message=f"I still couldn't narrow it down to one {pending_noun} -- which do you mean: {options_text}?",
+                disambiguation=Disambiguation(**pending),
+            ).model_dump()
+        }
+
     if target is None:
         if not interp.target_phrase:
             return {"response": ChatResponse(type="clarify", message=f"Which {noun} do you mean?").model_dump()}
