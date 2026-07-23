@@ -221,7 +221,7 @@ def _conflict_note(conflicts: list[dict]) -> str:
     if not conflicts:
         return ""
     names = ", ".join(f'"{c["summary"]}"' for c in conflicts)
-    return f" Note: this overlaps with {names}."
+    return f" (overlaps with {names})"
 
 
 def interpret_node(state: AgentState) -> dict:
