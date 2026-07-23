@@ -12,6 +12,7 @@ ActionType = Literal[
     "task.create",
     "task.update",
     "task.complete",
+    "task.reopen",
     "task.delete",
 ]
 
@@ -27,10 +28,29 @@ class ReferencedEntity(BaseModel):
     summary: str
 
 
+class DisambiguationOption(BaseModel):
+    id: str
+    name: str
+    label: str  # formatted "name (distinguishing time)" shown to the user
+    when: str | None = None  # raw start/due ISO timestamp -- lets a reply
+    # like "the 2pm one" be resolved by parsing actual times, not by
+    # fuzzy-matching text against a differently-formatted label string.
+
+
+class Disambiguation(BaseModel):
+    entity_type: Literal["event", "task"]
+    options: list[DisambiguationOption]
+
+
 class ChatRequest(BaseModel):
     message: str
     recent_history: list[HistoryTurn] = []
     last_referenced_entity: ReferencedEntity | None = None
+    # Echoed back from the previous turn's ChatResponse.disambiguation so a
+    # reply like "the second one" or "the 2pm one" can be matched against
+    # what was actually offered, not re-derived from scratch (PLAN.md's
+    # stateless design means the server has no memory of its own).
+    pending_disambiguation: Disambiguation | None = None
     now: str  # client's local wall-clock time, ISO 8601, naive
     timezone: str  # IANA name, e.g. "Asia/Kolkata"
 
@@ -49,6 +69,9 @@ class ChatResponse(BaseModel):
     # Present on "propose"/"result" so the client can set last_referenced_entity
     # for the next turn's pronoun resolution ("move it to Monday").
     referenced_entity: ReferencedEntity | None = None
+    # Present on "clarify" when the message lists multiple same-named
+    # candidates -- client echoes this back as pending_disambiguation.
+    disambiguation: Disambiguation | None = None
 
 
 class ExecuteRequest(BaseModel):

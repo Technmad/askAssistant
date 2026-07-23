@@ -24,4 +24,11 @@ GOOGLE_SCOPES = [
     "https://www.googleapis.com/auth/userinfo.email",
     "https://www.googleapis.com/auth/calendar.events",
     "https://www.googleapis.com/auth/tasks",
+    # Read-only contact lookup so a named attendee ("John") can resolve to
+    # an email automatically when they're an existing Google Contact,
+    # falling back to asking only when they genuinely aren't (PLAN.md §5).
+    # Two separate scopes: Google splits explicitly-saved contacts from
+    # "Other contacts" (auto-suggested from Gmail history but never saved).
+    "https://www.googleapis.com/auth/contacts.readonly",
+    "https://www.googleapis.com/auth/contacts.other.readonly",
 ]

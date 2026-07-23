@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   CalendarEvent,
   ChatResponse,
+  Disambiguation,
   HistoryTurn,
   ProposedAction,
   ReferencedEntity,
@@ -15,7 +16,7 @@ import {
 } from "@/lib/chat";
 import { API_BASE_URL, SessionExpiredError } from "@/lib/api";
 import { clearToken, getToken } from "@/lib/auth";
-import { cancelSpeech, speak, useSpeechRecognition } from "@/lib/speech";
+import { cancelSpeech, speak, useVoiceInput } from "@/lib/speech";
 import {
   CalendarIcon,
   CheckIcon,
@@ -63,6 +64,7 @@ export default function Home() {
   const [token, setTokenState] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([WELCOME]);
   const [lastReferencedEntity, setLastReferencedEntity] = useState<ReferencedEntity | null>(null);
+  const [pendingDisambiguation, setPendingDisambiguation] = useState<Disambiguation | null>(null);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [muted, setMuted] = useState(false);
@@ -71,6 +73,7 @@ export default function Home() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sessionExpired, setSessionExpired] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     setTokenState(getToken());
@@ -90,6 +93,7 @@ export default function Home() {
     setTokenState(null);
     setMessages([WELCOME]);
     setLastReferencedEntity(null);
+    setPendingDisambiguation(null);
   }
 
   async function refreshSidePanel() {
@@ -122,7 +126,7 @@ export default function Home() {
     setSending(true);
 
     try {
-      const response = await sendChat(text, history, lastReferencedEntity);
+      const response = await sendChat(text, history, lastReferencedEntity, pendingDisambiguation);
       applyResponse(response);
     } catch (err) {
       if (err instanceof SessionExpiredError) {
@@ -140,6 +144,9 @@ export default function Home() {
 
   function applyResponse(response: ChatResponse) {
     if (response.referenced_entity) setLastReferencedEntity(response.referenced_entity);
+    // Always overwrite (even to null) -- a stale disambiguation set must not
+    // survive into an unrelated later turn and get matched against by accident.
+    setPendingDisambiguation(response.disambiguation ?? null);
     setMessages((prev) => [
       ...prev,
       {
@@ -187,13 +194,22 @@ export default function Home() {
     listening,
     start: startListening,
     stop: stopListening,
-  } = useSpeechRecognition((transcript) => {
+  } = useVoiceInput((transcript) => {
     handleSend(transcript);
   });
 
   function toggleListening() {
     if (listening) stopListening();
     else startListening();
+  }
+
+  // Sidebar cards are a shortcut into the same propose/confirm flow, not a
+  // second editing path -- pre-fill the command and let the user review or
+  // edit it before sending, never send it for them.
+  function quickAction(text: string) {
+    setInput(text);
+    setSidebarOpen(false);
+    inputRef.current?.focus();
   }
 
   function logout() {
@@ -203,6 +219,7 @@ export default function Home() {
     setTokenState(null);
     setMessages([WELCOME]);
     setLastReferencedEntity(null);
+    setPendingDisambiguation(null);
   }
 
   if (!token) {
@@ -370,6 +387,7 @@ export default function Home() {
         >
           <div className="flex flex-1 items-center rounded-full border border-zinc-300 bg-zinc-50 px-4 py-2 transition focus-within:border-indigo-400 focus-within:ring-2 focus-within:ring-indigo-100 dark:border-zinc-700 dark:bg-zinc-900 dark:focus-within:ring-indigo-950">
             <input
+              ref={inputRef}
               value={input}
               onChange={(e) => setInput(e.target.value)}
               placeholder="Ask me to schedule, move, or check something..."
@@ -411,12 +429,16 @@ export default function Home() {
         <ul className="mb-6 space-y-1.5">
           {events.length === 0 && <li className="text-sm text-zinc-400">Nothing upcoming.</li>}
           {events.map((e) => (
-            <li
-              key={e.id}
-              className="rounded-xl border-l-4 border-indigo-500 bg-zinc-50 p-2.5 text-sm shadow-sm dark:bg-zinc-900"
-            >
-              <div className="font-medium text-zinc-800 dark:text-zinc-100">{e.summary}</div>
-              <div className="text-xs text-zinc-400">{formatWhen(e.start)}</div>
+            <li key={e.id}>
+              <button
+                type="button"
+                onClick={() => quickAction(`Delete "${e.summary}"`)}
+                title="Click to pre-fill a delete request"
+                className="w-full rounded-xl border-l-4 border-indigo-500 bg-zinc-50 p-2.5 text-left text-sm shadow-sm transition hover:bg-zinc-100 dark:bg-zinc-900 dark:hover:bg-zinc-800"
+              >
+                <div className="font-medium text-zinc-800 dark:text-zinc-100">{e.summary}</div>
+                <div className="text-xs text-zinc-400">{formatWhen(e.start)}</div>
+              </button>
             </li>
           ))}
         </ul>
@@ -428,12 +450,16 @@ export default function Home() {
         <ul className="space-y-1.5">
           {tasks.length === 0 && <li className="text-sm text-zinc-400">No open tasks.</li>}
           {tasks.map((t) => (
-            <li
-              key={t.id}
-              className="rounded-xl border-l-4 border-violet-500 bg-zinc-50 p-2.5 text-sm shadow-sm dark:bg-zinc-900"
-            >
-              <div className="font-medium text-zinc-800 dark:text-zinc-100">{t.title}</div>
-              {t.due && <div className="text-xs text-zinc-400">due {formatWhen(t.due)}</div>}
+            <li key={t.id}>
+              <button
+                type="button"
+                onClick={() => quickAction(`Mark "${t.title}" as completed`)}
+                title="Click to pre-fill a complete request"
+                className="w-full rounded-xl border-l-4 border-violet-500 bg-zinc-50 p-2.5 text-left text-sm shadow-sm transition hover:bg-zinc-100 dark:bg-zinc-900 dark:hover:bg-zinc-800"
+              >
+                <div className="font-medium text-zinc-800 dark:text-zinc-100">{t.title}</div>
+                {t.due && <div className="text-xs text-zinc-400">due {formatWhen(t.due)}</div>}
+              </button>
             </li>
           ))}
         </ul>

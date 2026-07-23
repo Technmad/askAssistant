@@ -10,12 +10,9 @@ said, in their own words, for the deterministic graph nodes downstream
 import json
 from dataclasses import dataclass, field
 
-from groq import Groq
-
 from ..config import settings
+from ..groq_client import groq_client
 from .schema import HistoryTurn, ReferencedEntity
-
-_client = Groq(api_key=settings.groq_api_key)
 
 INTENTS = [
     "calendar_create",
@@ -25,6 +22,7 @@ INTENTS = [
     "task_create",
     "task_update",
     "task_complete",
+    "task_reopen",  # "unmark", "reopen", "mark as not done", "undo completing"
     "task_delete",
     "task_read",
     "chitchat",
@@ -43,12 +41,15 @@ _TOOL_SCHEMA = {
                 "title": {
                     "type": ["string", "null"],
                     "description": (
-                        "Event or task title, if creating one or renaming an existing one. If the "
-                        "user didn't state an explicit title but the intent is clear from context "
-                        "(e.g. 'schedule a meeting with John' or 'set up a call with the design "
-                        "team'), synthesize a short, sensible title yourself, e.g. 'Meeting with "
-                        "John' or 'Call with design team'. Only leave this null if there's truly no "
-                        "reasonable title to infer."
+                        "For a CREATE: the event/task title. If the user didn't state an explicit "
+                        "title but the intent is clear from context (e.g. 'schedule a meeting with "
+                        "John'), synthesize a short, sensible one yourself, e.g. 'Meeting with John'. "
+                        "For an UPDATE/COMPLETE/DELETE of an EXISTING item: leave this null unless the "
+                        "user is EXPLICITLY asking to rename/retitle it to something new (e.g. 'rename "
+                        "my dentist appointment to Dental checkup'). Merely referring to an existing "
+                        "item by a descriptive phrase ('my submit budget task', 'the dentist "
+                        "appointment') is NOT a rename request -- that phrase belongs in target_phrase "
+                        "only, never copied into title as well."
                     ),
                 },
                 "time_phrase": {
@@ -73,8 +74,12 @@ _TOOL_SCHEMA = {
                     "description": (
                         "A short phrase identifying which EXISTING event/task is being updated, "
                         "completed, or deleted, e.g. 'dentist appointment', 'grocery task', 'Friday "
-                        "meeting'. If the user used a pronoun ('it', 'that'), resolve it using the "
-                        "last-referenced entity given in context and describe THAT entity here instead."
+                        "meeting'. If the user used a pronoun ('it', 'that') OR gave a bare command "
+                        "with NO explicit name at all ('unmark', 'undo that', 'reopen it', 'delete "
+                        "it'), resolve it using the last-referenced entity given in context and "
+                        "describe THAT entity here instead. NEVER invent or guess a different item's "
+                        "name when no name was actually given -- if there's no last-referenced entity "
+                        "to fall back on either, leave this null so the user gets asked to clarify."
                     ),
                 },
                 "duration_minutes": {
@@ -82,16 +87,17 @@ _TOOL_SCHEMA = {
                     "description": "Meeting duration in minutes, only if the user stated or implied one.",
                 },
                 "attendee_names": {
-                    "type": "array",
+                    "type": ["array", "null"],
                     "items": {"type": "string"},
-                    "description": "Names of people to invite, exactly as the user said them (e.g. 'John'). Empty if none mentioned.",
+                    "description": "Names of people to invite, exactly as the user said them (e.g. 'John'). Null or empty if none mentioned.",
                 },
                 "attendee_emails": {
-                    "type": "array",
+                    "type": ["array", "null"],
                     "items": {"type": "string"},
                     "description": (
                         "Email addresses for attendees, ONLY if the user (or an earlier turn) already "
-                        "gave an actual email address. Never guess or invent an email from a name."
+                        "gave an actual email address. Never guess or invent an email from a name. "
+                        "Null or empty if none given."
                     ),
                 },
             },
@@ -142,7 +148,7 @@ def interpret(
         messages.append({"role": turn.role, "content": turn.content})
     messages.append({"role": "user", "content": message})
 
-    response = _client.chat.completions.create(
+    response = groq_client.chat.completions.create(
         model=settings.groq_model,
         messages=messages,
         tools=[_TOOL_SCHEMA],

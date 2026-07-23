@@ -68,6 +68,10 @@ def complete_task(user_email: str, task_id: str) -> dict:
     return update_task(user_email, task_id, status="completed")
 
 
+def reopen_task(user_email: str, task_id: str) -> dict:
+    return update_task(user_email, task_id, status="needsAction")
+
+
 def delete_task(user_email: str, task_id: str) -> None:
     service = tasks_client(user_email)
     service.tasks().delete(tasklist=DEFAULT_TASKLIST, task=task_id).execute()

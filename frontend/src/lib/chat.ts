@@ -4,6 +4,9 @@ export type HistoryTurn = { role: "user" | "assistant"; content: string };
 
 export type ReferencedEntity = { type: "event" | "task"; id: string; summary: string };
 
+export type DisambiguationOption = { id: string; name: string; label: string; when?: string | null };
+export type Disambiguation = { entity_type: "event" | "task"; options: DisambiguationOption[] };
+
 export type ProposedAction = {
   request_id: string;
   action:
@@ -13,6 +16,7 @@ export type ProposedAction = {
     | "task.create"
     | "task.update"
     | "task.complete"
+    | "task.reopen"
     | "task.delete";
   entity_id: string | null;
   params: Record<string, unknown>;
@@ -23,6 +27,7 @@ export type ChatResponse = {
   message: string;
   proposed_action?: ProposedAction | null;
   referenced_entity?: ReferencedEntity | null;
+  disambiguation?: Disambiguation | null;
 };
 
 export type CalendarEvent = { id: string; summary: string; start: string; end?: string };
@@ -39,7 +44,8 @@ export function boundedHistory(turns: HistoryTurn[]): HistoryTurn[] {
 export async function sendChat(
   message: string,
   recentHistory: HistoryTurn[],
-  lastReferencedEntity: ReferencedEntity | null
+  lastReferencedEntity: ReferencedEntity | null,
+  pendingDisambiguation: Disambiguation | null
 ): Promise<ChatResponse> {
   const now = new Date();
   const localIso = new Date(now.getTime() - now.getTimezoneOffset() * 60000)
@@ -53,6 +59,7 @@ export async function sendChat(
       message,
       recent_history: boundedHistory(recentHistory),
       last_referenced_entity: lastReferencedEntity,
+      pending_disambiguation: pendingDisambiguation,
       now: localIso,
       timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     }),
@@ -83,4 +90,13 @@ export async function fetchOpenTasks(): Promise<Task[]> {
   if (!res.ok) return [];
   const data = await res.json();
   return data.tasks;
+}
+
+export async function transcribeAudio(audio: Blob, filename: string): Promise<string> {
+  const form = new FormData();
+  form.append("audio", audio, filename);
+  const res = await apiFetch("/transcribe", { method: "POST", body: form });
+  if (!res.ok) throw new Error(await res.text());
+  const data = await res.json();
+  return data.text;
 }

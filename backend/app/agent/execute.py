@@ -100,6 +100,13 @@ def _dispatch(user_email: str, action: ProposedAction) -> ExecuteResponse:
             message=f'Marked "{task["title"]}" as completed.',
             referenced_entity=ReferencedEntity(type="task", id=task["id"], summary=task["title"]),
         )
+    if action.action == "task.reopen":
+        task = tasks_service.reopen_task(user_email, action.entity_id)
+        return ExecuteResponse(
+            type="result",
+            message=f'Reopened "{task["title"]}".',
+            referenced_entity=ReferencedEntity(type="task", id=task["id"], summary=task["title"]),
+        )
     if action.action == "task.delete":
         tasks_service.delete_task(user_email, action.entity_id)
         return ExecuteResponse(type="result", message="Deleted.")

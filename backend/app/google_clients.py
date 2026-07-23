@@ -36,3 +36,7 @@ def calendar_client(user_email: str):
 
 def tasks_client(user_email: str):
     return build("tasks", "v1", credentials=_credentials_for(user_email), cache_discovery=False)
+
+
+def people_client(user_email: str):
+    return build("people", "v1", credentials=_credentials_for(user_email), cache_discovery=False)

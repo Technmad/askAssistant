@@ -1,4 +1,4 @@
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from googleapiclient.errors import HttpError
 
@@ -10,6 +10,7 @@ from .auth import router as auth_router
 from .config import settings
 from .services import calendar as calendar_service
 from .services import tasks as tasks_service
+from .services.transcribe import TranscriptionError, transcribe_audio
 
 app = FastAPI(title="AI Personal Assistant")
 
@@ -57,6 +58,9 @@ def chat(body: ChatRequest, user_email: str = Depends(get_current_user)):
         "last_referenced_entity": (
             body.last_referenced_entity.model_dump() if body.last_referenced_entity else None
         ),
+        "pending_disambiguation": (
+            body.pending_disambiguation.model_dump() if body.pending_disambiguation else None
+        ),
         "now": body.now,
         "timezone": body.timezone,
         "user_email": user_email,
@@ -68,3 +72,20 @@ def chat(body: ChatRequest, user_email: str = Depends(get_current_user)):
 @app.post("/execute", response_model=ExecuteResponse)
 def execute(body: ExecuteRequest, user_email: str = Depends(get_current_user)):
     return execute_action(user_email, body.proposed_action)
+
+
+@app.post("/transcribe")
+async def transcribe(
+    audio: UploadFile = File(...),
+    user_email: str = Depends(get_current_user),
+):
+    """Fallback voice-input path for browsers without Web Speech API support
+    (Safari, Firefox, most mobile browsers) -- see services/transcribe.py."""
+    audio_bytes = await audio.read()
+    if not audio_bytes:
+        raise HTTPException(status_code=400, detail="Empty audio upload")
+    try:
+        text = transcribe_audio(audio_bytes, audio.filename or "audio.webm", audio.content_type)
+    except TranscriptionError as exc:
+        raise HTTPException(status_code=502, detail=f"Transcription failed: {exc}") from exc
+    return {"text": text}

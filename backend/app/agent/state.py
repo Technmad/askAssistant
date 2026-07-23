@@ -6,6 +6,7 @@ class AgentState(TypedDict, total=False):
     message: str
     recent_history: list[dict]
     last_referenced_entity: dict | None
+    pending_disambiguation: dict | None
     now: str
     timezone: str
     user_email: str

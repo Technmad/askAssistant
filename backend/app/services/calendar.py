@@ -61,7 +61,10 @@ def create_event(
     if attendees:
         body["attendees"] = [{"email": email} for email in attendees]
 
-    created = service.events().insert(calendarId="primary", body=body).execute()
+    # Google does NOT email attendees by default -- sendUpdates="all" is
+    # required or they're silently added to the guest list with no actual
+    # notification, defeating the point of inviting them at all.
+    created = service.events().insert(calendarId="primary", body=body, sendUpdates="all").execute()
     return _serialize(created)
 
 
@@ -82,10 +85,12 @@ def update_event(
     if end is not None:
         body["end"] = {"dateTime": end, "timeZone": time_zone}
 
-    updated = service.events().patch(calendarId="primary", eventId=event_id, body=body).execute()
+    updated = service.events().patch(calendarId="primary", eventId=event_id, body=body, sendUpdates="all").execute()
     return _serialize(updated)
 
 
 def delete_event(user_email: str, event_id: str) -> None:
     service = calendar_client(user_email)
-    service.events().delete(calendarId="primary", eventId=event_id).execute()
+    # sendUpdates="all" here too -- an attendee should be notified a meeting
+    # is cancelled, not left to discover it by finding an empty calendar slot.
+    service.events().delete(calendarId="primary", eventId=event_id, sendUpdates="all").execute()
