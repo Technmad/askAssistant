@@ -2,8 +2,6 @@
 to an email automatically when they're an existing contact, falling back
 to asking only when they genuinely aren't."""
 
-from difflib import SequenceMatcher
-
 from ..google_clients import people_client
 
 # Requires effectively a full word-for-word match (see _name_score) --
@@ -16,9 +14,33 @@ from ..google_clients import people_client
 # threshold is now a fraction of whole query WORDS matched, not characters.
 _MATCH_THRESHOLD = 1.0
 _AMBIGUITY_MARGIN = 0.05
-_WORD_MATCH_THRESHOLD = 0.8  # per-word typo tolerance, e.g. a single-letter slip
-# ("Rukum" vs "Rukam" -- a realistic single-letter substitution in a 5-letter
-# word -- scores exactly 0.8 on SequenceMatcher; 0.85 rejected that same typo.
+_MIN_TYPO_WORD_LEN = 4  # below this, even a 1-letter edit changes too much of the word to trust
+
+
+def _edit_distance(a: str, b: str) -> int:
+    prev = list(range(len(b) + 1))
+    for i, ca in enumerate(a, start=1):
+        curr = [i] + [0] * len(b)
+        for j, cb in enumerate(b, start=1):
+            cost = 0 if ca == cb else 1
+            curr[j] = min(prev[j] + 1, curr[j - 1] + 1, prev[j - 1] + cost)
+        prev = curr
+    return prev[-1]
+
+
+def _word_matches(word: str, contact_word: str) -> bool:
+    if word == contact_word:
+        return True
+    # Ratio-based scoring (e.g. SequenceMatcher) was found live to conflate a
+    # genuine single-letter typo ("Rukum" vs "Rukam") with two DIFFERENT real
+    # names of different lengths ("amit" vs "asmita" also scores 0.8 on that
+    # scale, and silently invited the wrong real contact to a meeting). A
+    # same-length, single-character substitution is a much narrower, safer
+    # definition of "typo" -- it does not fire on insertions/deletions, which
+    # is exactly what turns one short name into a different, longer one.
+    if len(word) != len(contact_word) or len(word) < _MIN_TYPO_WORD_LEN:
+        return False
+    return _edit_distance(word, contact_word) <= 1
 
 
 def _name_score(query: str, contact_name: str) -> float:
@@ -30,11 +52,7 @@ def _name_score(query: str, contact_name: str) -> float:
     contact_words = contact_name.lower().split()
     if not query_words:
         return 0.0
-    matched = 0
-    for word in query_words:
-        best = max((SequenceMatcher(None, word, cw).ratio() for cw in contact_words), default=0.0)
-        if word in contact_words or best >= _WORD_MATCH_THRESHOLD:
-            matched += 1
+    matched = sum(1 for word in query_words if any(_word_matches(word, cw) for cw in contact_words))
     return matched / len(query_words)
 
 

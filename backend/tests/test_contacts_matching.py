@@ -30,3 +30,10 @@ class TestNameScore:
 
     def test_unrelated_name_scores_zero(self):
         assert _name_score("Deepak", "Ankit Kumar") == 0.0
+
+    def test_different_length_short_names_do_not_match(self):
+        # Found live: "amit" scored 0.8 against "asmita" under per-word
+        # SequenceMatcher ratio -- the exact threshold that was calibrated for
+        # the Rukum/Rukam typo case -- and silently invited a real contact
+        # named Asmita to a meeting meant for a different person, Amit.
+        assert _name_score("amit", "asmita") == 0.0
