@@ -16,7 +16,7 @@ import {
 } from "@/lib/chat";
 import { API_BASE_URL, SessionExpiredError } from "@/lib/api";
 import { clearToken, getToken } from "@/lib/auth";
-import { cancelSpeech, speak, useVoiceInput } from "@/lib/speech";
+import { cancelSpeech, speak, unlockSpeechSynthesis, useVoiceInput } from "@/lib/speech";
 import {
   CalendarIcon,
   CheckIcon,
@@ -219,8 +219,12 @@ export default function Home() {
   }, [voiceError]);
 
   function toggleListening() {
-    if (listening) stopListening();
-    else startListening();
+    if (listening) {
+      stopListening();
+    } else {
+      unlockSpeechSynthesis();
+      startListening();
+    }
   }
 
   // Sidebar cards are a shortcut into the same propose/confirm flow, not a

@@ -192,7 +192,28 @@ export function useVoiceInput(onFinalResult: (text: string) => void) {
 export function speak(text: string) {
   if (typeof window === "undefined" || !window.speechSynthesis) return;
   window.speechSynthesis.cancel();
-  window.speechSynthesis.speak(new SpeechSynthesisUtterance(text));
+  // Chrome bug: cancel() doesn't clear its internal speaking state
+  // synchronously, so a speak() called immediately after can race it and
+  // get silently dropped -- the utterance never plays and nothing errors.
+  // A short delay avoids the race (a known, long-standing Chromium issue).
+  setTimeout(() => window.speechSynthesis.speak(new SpeechSynthesisUtterance(text)), 50);
+}
+
+// A response after VOICE input goes through: click mic (a real user gesture)
+// -> browser-internal speech recognition -> onresult callback -> speak().
+// That onresult callback fires as an async, browser-internal event, not as a
+// trusted gesture -- some browsers only allow speechSynthesis.speak() to
+// actually produce audio once it's been "unlocked" by a genuine gesture-
+// linked call earlier in the session, and silently ignore it otherwise.
+// Typed messages don't have this problem (Send's click handler IS the
+// trusted gesture), which is exactly the difference observed live: typed
+// responses spoke fine, voice-triggered ones arrived as text but stayed
+// silent. Call this synchronously from the mic button's own onClick.
+export function unlockSpeechSynthesis() {
+  if (typeof window === "undefined" || !window.speechSynthesis) return;
+  const unlock = new SpeechSynthesisUtterance(" ");
+  unlock.volume = 0;
+  window.speechSynthesis.speak(unlock);
 }
 
 export function cancelSpeech() {
