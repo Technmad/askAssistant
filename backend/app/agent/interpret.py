@@ -57,12 +57,15 @@ _TOOL_SCHEMA = {
                     "description": (
                         "A phrase naming when a single event/task should happen, e.g. 'tomorrow "
                         "3pm', 'next Monday morning'. Must include BOTH a date reference (today/"
-                        "tomorrow/a weekday) AND a time-of-day if either was mentioned anywhere in "
-                        "this conversation -- if the date was given in an earlier turn (e.g. "
-                        "assistant asked 'what time?' after the user said 'tomorrow') and the "
-                        "user's latest message only supplies the time (e.g. '3pm'), COMBINE them "
-                        "into one phrase covering both, e.g. 'tomorrow 3pm'. Do not resolve the "
-                        "phrase into an actual date yourself -- just make sure it's complete."
+                        "tomorrow/a weekday) AND a time-of-day if EITHER was mentioned ANYWHERE "
+                        "earlier in this conversation, even if the current message only supplies "
+                        "the other half. This works in BOTH directions -- e.g. the date came first "
+                        "('tomorrow' -> assistant asked 'what time?' -> user says '3pm': combine "
+                        "into 'tomorrow 3pm'), OR the time came first ('12pm' -> assistant asked "
+                        "'what day?' -> user says 'day after tomorrow': combine into 'day after "
+                        "tomorrow 12pm'). Always look back through the WHOLE conversation for the "
+                        "missing half, not just the most recent assistant question. Do not resolve "
+                        "the phrase into an actual date yourself -- just make sure it's complete."
                     ),
                 },
                 "range_phrase": {

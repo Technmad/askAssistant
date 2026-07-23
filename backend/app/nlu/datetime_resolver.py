@@ -70,6 +70,12 @@ def parse_relative_date(phrase: str, now: datetime) -> date | None:
     date. Returns None if the phrase names no recognizable date at all."""
     lowered = phrase.lower()
 
+    if "day after tomorrow" in lowered:
+        # Must be checked before the bare "tomorrow" branch below --
+        # "tomorrow" is a substring of "day after tomorrow", so the naive
+        # check would otherwise match it first and silently resolve to +1
+        # day instead of +2.
+        return (now + timedelta(days=2)).date()
     if "tomorrow" in lowered:
         return (now + timedelta(days=1)).date()
     if "today" in lowered or "tonight" in lowered:

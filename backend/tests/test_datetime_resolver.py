@@ -47,6 +47,11 @@ class TestParseRelativeDate:
     def test_tomorrow(self):
         assert parse_relative_date("tomorrow 3pm", WED) == datetime(2026, 7, 23).date()
 
+    def test_day_after_tomorrow(self):
+        # "tomorrow" is a substring of "day after tomorrow" -- must resolve
+        # to +2 days, not silently match the bare "tomorrow" branch as +1.
+        assert parse_relative_date("day after tomorrow 12pm", WED) == datetime(2026, 7, 24).date()
+
     def test_today(self):
         assert parse_relative_date("today at 5pm", WED) == datetime(2026, 7, 22).date()
 

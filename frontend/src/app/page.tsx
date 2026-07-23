@@ -143,9 +143,13 @@ export default function Home() {
   }
 
   function applyResponse(response: ChatResponse) {
-    if (response.referenced_entity) setLastReferencedEntity(response.referenced_entity);
-    // Always overwrite (even to null) -- a stale disambiguation set must not
-    // survive into an unrelated later turn and get matched against by accident.
+    // Always overwrite (even to null) -- a stale reference must not survive
+    // into an unrelated later turn. Observed failure: "Meeting with Raushan"
+    // stayed the last-referenced entity for many turns after being created,
+    // and a confused model latched onto it mid-way through creating a
+    // completely different, unrelated meeting with someone else.
+    setLastReferencedEntity(response.referenced_entity ?? null);
+    // Same principle for a pending disambiguation set.
     setPendingDisambiguation(response.disambiguation ?? null);
     setMessages((prev) => [
       ...prev,
