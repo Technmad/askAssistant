@@ -1,13 +1,41 @@
 # AI Personal Assistant — Google Calendar & Tasks
 
-A natural-language assistant for Google Calendar and Google Tasks, by voice or text. Built for the callkaro.ai take-home assignment.
+![Python](https://img.shields.io/badge/python-3.12+-3776AB?logo=python&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-0.139-009688?logo=fastapi&logoColor=white)
+![LangGraph](https://img.shields.io/badge/LangGraph-1.2-1C3C3C)
+![Next.js](https://img.shields.io/badge/Next.js-16-000000?logo=nextdotjs&logoColor=white)
+![Groq](https://img.shields.io/badge/Groq-Llama%203.1%20%2B%20Whisper-F55036?logo=groq&logoColor=white)
+![Google APIs](https://img.shields.io/badge/Google-Calendar%20%C2%B7%20Tasks%20%C2%B7%20People-4285F4?logo=google&logoColor=white)
 
-**Live app:** https://ask-assistant-three.vercel.app
-**Backend API:** https://askassistant-production.up.railway.app
-**Demo video:** _link goes here_
-**Source:** https://github.com/Technmad/askAssistant
+A natural-language assistant for Google Calendar and Google Tasks — voice or text, with a full read → confirm → execute loop so nothing touches your real calendar without you saying "yes." Built for the callkaro.ai take-home assignment.
 
-> Note on access: Google's OAuth consent screen for this project is in **Testing** publishing status (see [Known limitations](#known-limitations)). If you can't log in, that's why — watch the demo video, or ask to be added as a test user.
+|  |  |
+|---|---|
+| **Live app** | https://ask-assistant-three.vercel.app |
+| **Backend API** | https://askassistant-production.up.railway.app |
+| **Demo video** | _link goes here_ |
+| **Source** | https://github.com/Technmad/askAssistant |
+
+> **Access note:** Google's OAuth consent screen for this project is in **Testing** publishing status (see [Known limitations](#known-limitations)). If login doesn't work for you, that's why — watch the demo video, or ask to be added as a test user.
+
+---
+
+## Contents
+
+- [What it does](#what-it-does)
+- [CRUD coverage](#crud-coverage)
+- [Beyond the core requirements](#beyond-the-core-requirements)
+- [Architecture](#architecture)
+- [Setup](#setup)
+- [Reliability & AI reasoning](#reliability--ai-reasoning)
+- [Error handling](#error-handling)
+- [Production readiness](#production-readiness)
+- [Testing](#testing)
+- [Known limitations](#known-limitations)
+- [Project structure](#project-structure)
+- [Tech stack](#tech-stack)
+
+---
 
 ## What it does
 
@@ -19,32 +47,84 @@ Type or speak things like:
 - "Create a task to submit the report next Monday"
 - "Mark my grocery task as completed"
 - "Delete my dentist appointment"
+- "Show me all tasks due this week"
 
-Every create/update/delete/complete is **proposed first** and only executes after an explicit confirm — nothing happens silently.
+Every create, update, delete, or complete is **proposed first** — the agent replies with a plain-language summary of exactly what it's about to do, and only an explicit **Confirm** click executes it against your real Calendar/Tasks. **Cancel** ends it with nothing touched.
+
+A typical exchange:
+
+```
+you        Schedule a meeting with Priya tomorrow at 3pm
+
+assistant  Create "Meeting with Priya" with priya@example.com on
+           Thursday Jul 24 at 03:00 PM — confirm?
+           [ Confirm ]  [ Cancel ]
+
+you        (clicks Confirm)
+
+assistant  Created "Meeting with Priya" on Thursday Jul 24 at 03:00 PM.
+```
+
+If something's ambiguous or incomplete, it asks — it never guesses:
+
+```
+you        Delete the meeting with Priya
+
+assistant  Which one did you mean — "Meeting with Priya" (Thu Jul 24,
+           03:00 PM); "Meeting with Priya" (Fri Jul 25, 11:00 AM)?
+
+you        the 11am one
+
+assistant  Delete "Meeting with Priya" — confirm?
+```
+
+The follow-up reply is matched against what was *actually* offered (by time, by ordinal position, or by copying the label back) — not re-derived from scratch, which is what would otherwise leave a one-word reply like "the 11am one" with nothing to match against.
+
+## CRUD coverage
+
+Full create/read/update/delete, implemented identically for both services so Tasks never trails Calendar as the less-tested half:
+
+| Operation | Google Calendar | Google Tasks | Example command |
+|---|---|---|---|
+| **Create** | `calendar.create` | `task.create` | *"Schedule a meeting tomorrow at 3pm"* / *"Create a task to submit the report Monday"* |
+| **Read** | `calendar_read` (date-range list) | `task_read` (open-task list) | *"What's on my calendar this week?"* / *"Show me tasks due this week"* |
+| **Update** | `calendar.update` (time, title) | `task.update` (title, due date) | *"Move my Friday meeting to Monday morning"* |
+| **Delete** | `calendar.delete` | `task.delete` | *"Delete my dentist appointment"* |
+| **Complete / Reopen** | — | `task.complete` / `task.reopen` | *"Mark my grocery task as completed"* / *"Unmark it"* |
+
+Every mutating path runs through the same `resolve_target()` fuzzy-matcher ([`app/services/resolve.py`](backend/app/services/resolve.py)) and the same hardened `/execute` dispatcher ([`app/agent/execute.py`](backend/app/agent/execute.py)) — one code path per concern, not one per intent.
+
+## Beyond the core requirements
+
+The assignment explicitly favors a focused, polished feature set over breadth for its own sake. One additional integration was added — deliberately, not as a checkbox exercise:
+
+- **Google People API (read-only contacts lookup).** The assignment's own flagship example is *"Schedule a meeting with **John**..."* — without contact resolution, that always stops to ask for John's email, every time. `app/services/contacts.py` checks both saved contacts and Gmail's auto-suggested "Other contacts" and resolves a confidently-matched name to an email automatically, falling back to asking only when the person genuinely isn't found (or the match is ambiguous — inviting the wrong person is worse than one extra question).
+
+Gmail, Drive, Docs, Sheets, and Maps were deliberately **not** added. None has an honest, non-contrived tie-in to a Calendar/Tasks assistant, and forcing one in would trade the reliability/UX polish work for surface-level breadth. Contacts was the one exception because it's load-bearing for the assignment's own headline example — everything else stayed out on purpose.
 
 ## Architecture
 
 ```
-Next.js (Vercel)                       FastAPI (Railway)                     Google APIs
-─────────────────                       ──────────────────                    ───────────
-Chat UI (text + voice)      ───────▶    /auth/login, /auth/callback  ──────▶ OAuth2
- • Web Speech API (native)               (issues a short-lived JWT)
+Next.js (Vercel)                        FastAPI (Railway)                     Google APIs
+─────────────────                        ──────────────────                    ───────────
+Chat UI (text + voice)      ────────▶    /auth/login, /auth/callback  ──────▶ OAuth2
+ • Web Speech API (native)                (issues a short-lived JWT)
  • Whisper fallback (Safari/Firefox)
-                             ───────▶    /chat  (LangGraph agent)
-                             ◀───────      • Groq LLM: intent + slot extraction ONLY
-Confirm / Cancel UI                        • deterministic code: dates, entity
-                             ───────▶        matching, conflict checks, contacts
-                                          /execute (dedupe + act, idempotent)
-                                            │
-                                            ├─ Calendar API (CRUD)
-                                            ├─ Tasks API (CRUD)
-                                            ├─ People API (contact lookup)
-                                            └─ token store (SQLite locally)
+                             ────────▶    /chat   (LangGraph agent)
+                             ◀────────      • Groq LLM: intent + slot extraction ONLY
+Confirm / Cancel UI                         • deterministic code: dates, entity
+                             ────────▶        matching, conflict checks, contacts
+                                           /execute (dedupe + act, idempotent)
+                                             │
+                                             ├─ Calendar API (CRUD)
+                                             ├─ Tasks API (CRUD)
+                                             ├─ People API (contact lookup)
+                                             └─ token store (SQLite locally)
 ```
 
 ### Why it's built this way
 
-**The LLM only extracts language — it never decides anything reliability-critical.** Groq's `llama-3.1-8b-instant` reads the user's message and pulls out an intent plus raw slots (a title, a phrase like "tomorrow 3pm", who to invite). It never resolves a date, never invents an entity ID, never decides a scheduling conflict. All of that is deterministic Python, independently unit-tested from the LLM. This split is the main answer to "how is this reliable" — the parts most likely to silently misfire never touch the model.
+**The LLM only extracts language — it never decides anything reliability-critical.** Groq (`llama-3.1-8b-instant`, configurable via `GROQ_MODEL`) reads the user's message and pulls out an intent plus raw slots (a title, a phrase like "tomorrow 3pm", who to invite). It never resolves a date, never invents an entity ID, never decides a scheduling conflict. All of that is deterministic Python, independently unit-tested apart from the LLM. This split is the main answer to "how is this reliable" — the parts most likely to silently misfire never touch the model.
 
 **Every mutation is propose → confirm → execute, never fire-and-forget.** The agent returns a structured `proposed_action`; the frontend renders it with Confirm/Cancel; only an explicit confirm calls `/execute`. There's no LangGraph checkpointer and no server-side session — the whole exchange is stateless. The client carries forward exactly what's needed between turns: recent message history, the last-referenced entity (for "move it to Monday"), and a pending-disambiguation set (for "the 2pm one" after being shown multiple matches).
 
@@ -113,20 +193,65 @@ uv run pytest
 
 ## Production readiness
 
-- Deployed: frontend on Vercel, backend on Railway, both auto-deploying from `master`.
-- Auth: FastAPI owns the full Google OAuth2 flow and issues a short-lived (45 min) JWT to the client rather than a cross-domain cookie — deliberately avoids SameSite/CORS complexity across two separate hosting domains, at the cost of a bearer token living in browser memory. A conscious tradeoff, not an oversight.
-- Refresh tokens are stored server-side (SQLite locally; a real production deployment would move this to a managed Postgres instance with encryption at rest).
-- `/execute` is idempotent (dedupe keyed on a client-generated request ID, not the action's content — so two genuinely-intended identical actions are never conflated) and staleness-aware (see above).
+- **Deployed**: frontend on Vercel, backend on Railway, both auto-deploying from `master`.
+- **Auth**: FastAPI owns the full Google OAuth2 flow and issues a short-lived (45 min) JWT to the client rather than a cross-domain cookie — deliberately avoids SameSite/CORS complexity across two separate hosting domains, at the cost of a bearer token living in browser memory. A conscious tradeoff, not an oversight.
+- **Refresh tokens** are stored server-side (SQLite locally; a real production deployment would move this to a managed Postgres instance with encryption at rest — noted explicitly in [Known limitations](#known-limitations), not glossed over).
+- **`/execute` is idempotent** (dedupe keyed on a client-generated request ID, not the action's content — so two genuinely-intended identical actions are never conflated) and staleness-aware (see [Architecture](#architecture)).
+
+## Testing
+
+```bash
+cd backend
+uv run pytest      # 26 passed
+```
+
+Automated coverage is deliberately concentrated where it matters most: the **datetime/timezone resolver** — the single component most likely to silently produce a wrong answer that only shows up hours later — has 26 unit tests covering same-day-weekday ambiguity, "next" vs. bare-weekday, explicit-vs-vague time-of-day, and range resolution. The LLM-interpretation layer, disambiguation flow, contact resolution, and Google API wrappers are currently verified through manual/live testing rather than automated tests — an honest gap, not a hidden one, and the next piece to close given more time.
 
 ## Known limitations
 
 - **OAuth is in Google's "Testing" publishing status** — full verification for the sensitive scopes here (Calendar, Tasks, Contacts) wasn't feasible in this timeframe. Only accounts added as test users can log in.
-- **Voice input**: native Web Speech API (Chrome/Edge) with a Groq Whisper-based record-and-transcribe fallback for Safari/Firefox/mobile browsers that don't have it.
+- **Voice input**: native Web Speech API (Chrome/Edge) with a Groq Whisper-based record-and-transcribe fallback for Safari/Firefox/mobile browsers that don't have it — the fallback has real upload+transcription latency the native path doesn't, since it's a genuine round trip rather than on-device recognition.
 - **Bulk operations** ("delete all of them") aren't supported — the assistant asks for one specific item rather than guessing at multiple.
 - **Task due dates are date-only.** This is a Google Tasks API constraint (the time-of-day component is discarded server-side, by Google's own design), not a bug here.
+- **Single calendar / single tasklist**: only the `"primary"` Google Calendar and the default (`@default`) Google Tasks list are addressed — no multi-calendar or multi-tasklist support.
+- **Token storage** is a local SQLite file, fine for this deployment's scale but not durable against an ephemeral-disk host restart — a real production deployment would move this to managed Postgres (see [Production readiness](#production-readiness)).
+- **Automated test coverage** is concentrated on the datetime resolver (see [Testing](#testing)) rather than spread evenly across every module.
 - **Sidebar quick-actions**: clicking an event/task in the side panel pre-fills a suggested command in the chat input (still requires explicit confirm) rather than editing directly — the conversational agent is the primary interface, the sidebar is a glance-and-jump-in shortcut into it.
+
+## Project structure
+
+```
+backend/
+  app/
+    agent/
+      graph.py          LangGraph nodes: interpret → create / mutate_existing / read / chitchat
+      interpret.py       the only LLM call — intent + slot extraction, nothing else
+      execute.py         hardened /execute dispatcher — dedupe, act, staleness handling
+      schema.py          wire contract (ChatRequest/Response, ProposedAction, Disambiguation)
+    nlu/
+      datetime_resolver.py   pure-logic relative date/time resolution (26 tests)
+      fuzzy_match.py         shared scoring used by both entity matching and contacts
+    services/
+      calendar.py / tasks.py   Google API CRUD wrappers
+      resolve.py               shared read → match → confirm, used by both services
+      contacts.py              People API lookup for attendee-name → email resolution
+      transcribe.py            Groq Whisper fallback transcription
+    auth.py              Google OAuth2 flow + JWT issuance
+    google_clients.py    per-user authenticated Calendar/Tasks/People clients
+    token_store.py        refresh-token persistence (SQLite)
+  tests/
+    test_datetime_resolver.py
+frontend/
+  src/
+    app/page.tsx          chat UI, confirm/cancel, side panel
+    lib/
+      chat.ts              typed API client for /chat, /execute, /transcribe
+      speech.ts             voice input: native SpeechRecognition + MediaRecorder fallback
+      auth.ts               session-token storage
+```
 
 ## Tech stack
 
-**Backend:** FastAPI, LangGraph, Groq (`llama-3.1-8b-instant` + `whisper-large-v3-turbo`), `google-api-python-client`, SQLite (dev token store), pytest.
-**Frontend:** Next.js (App Router), TypeScript, Tailwind CSS, Web Speech API.
+**Backend:** FastAPI, LangGraph, Groq (`llama-3.1-8b-instant` for reasoning, `whisper-large-v3-turbo` for transcription), `google-api-python-client`, SQLite (dev token store), pytest.
+**Frontend:** Next.js 16 (App Router), TypeScript, Tailwind CSS, Web Speech API.
+**Deployment:** Vercel (frontend), Railway (backend).
