@@ -13,7 +13,7 @@
 A natural-language assistant for Google Calendar and Google Tasks — with a full read → confirm → execute loop so nothing touches your real calendar without you saying "yes."
 Built for the callkaro.ai take-home assignment.
 
-**[Live App](https://ask-assistant-three.vercel.app)** &nbsp;·&nbsp; **[Backend API](https://askassistant-production.up.railway.app)** &nbsp;·&nbsp; **Demo Video** _(link coming soon)_ &nbsp;·&nbsp; **[Source](https://github.com/Technmad/askAssistant)**
+**[Live App](https://ask-assistant-three.vercel.app)** &nbsp;·&nbsp; **[Backend API](https://askassistant-production.up.railway.app)** &nbsp;·&nbsp; **[Demo Video](https://www.loom.com/share/c91b6788a8354251b04fae4c6a634a64)** &nbsp;·&nbsp; **[Source](https://github.com/Technmad/askAssistant)**
 
 </div>
 
